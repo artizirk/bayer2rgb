@@ -42,32 +42,32 @@
 // value of 100 -----------------+
 //
 #define TIFF_HDR_NUM_ENTRY 8
-#define TIFF_HDR_SIZE 10+TIFF_HDR_NUM_ENTRY*12 
+#define TIFF_HDR_SIZE 10+TIFF_HDR_NUM_ENTRY*12
 uint8_t tiff_header[TIFF_HDR_SIZE] = {
-	// I     I     42    
+	// I     I     42
 	  0x49, 0x49, 0x2a, 0x00,
-	// ( offset to tags, 0 )  
-	  0x08, 0x00, 0x00, 0x00, 
-	// ( num tags )  
-	  0x08, 0x00, 
+	// ( offset to tags, 0 )
+	  0x08, 0x00, 0x00, 0x00,
+	// ( num tags )
+	  0x08, 0x00,
 	// ( newsubfiletype, 0 full-image )
 	  0xfe, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	// ( image width )
 	  0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	// ( image height )
-	  0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+	  0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	// ( bits per sample )
-	  0x02, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+	  0x02, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	// ( Photometric Interpretation, 2 = RGB )
-	  0x06, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
+	  0x06, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
 	// ( Strip offsets, 8 )
-	  0x11, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 
+	  0x11, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
 	// ( samples per pixel, 3 - RGB)
 	  0x15, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
 	// ( Strip byte count )
-	  0x17, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+	  0x17, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
-uint8_t * 
+uint8_t *
 put_tiff(uint8_t * rgb, uint32_t width, uint32_t height, uint16_t bpp)
 {
 	uint32_t ulTemp=0;
@@ -134,6 +134,16 @@ getFirstColor(char *f)
 	return DC1394_COLOR_FILTER_RGGB;
 }
 
+uint32_t
+reverse(register uint32_t x)
+{
+	x = (((x & 0xaaaaaaaa) >> 1) | ((x & 0x55555555) << 1));
+	x = (((x & 0xcccccccc) >> 2) | ((x & 0x33333333) << 2));
+	x = (((x & 0xf0f0f0f0) >> 4) | ((x & 0x0f0f0f0f) << 4));
+	x = (((x & 0xff00ff00) >> 8) | ((x & 0x00ff00ff) << 8));
+	return((x >> 16) | (x << 16));
+}
+
 void
 usage( char * name )
 {
@@ -146,7 +156,7 @@ usage( char * name )
 	printf("   --first,-f     first pixel color: RGGB, GBRG, GRBG, BGGR\n");
 	printf("   --method,-m    interpolation method: NEAREST, SIMPLE, BILINEAR, HQLINEAR, DOWNSAMPLE, EDGESENSE, VNG, AHD\n");
 	printf("   --tiff,-t      add a tiff header\n");
-	printf("   --swap,-s      if bpp == 16, swap byte order before conversion\n");
+	printf("   --swap,-s      swap bit order before conversion\n");
 	printf("   --help,-h      this helpful message\n");
 }
 
@@ -161,6 +171,7 @@ main( int argc, char ** argv )
     int input_fd = 0;
     int output_fd = 0;
     void * bayer = NULL;
+    void * orig_bayer = NULL;
     void * rgb = NULL, *rgb_start = NULL;
     char c;
     int optidx = 0;
@@ -251,11 +262,24 @@ main( int argc, char ** argv )
     ftruncate(output_fd, out_size );
 
     bayer = mmap(NULL, in_size, PROT_READ | PROT_WRITE, MAP_PRIVATE /*| MAP_POPULATE*/, input_fd, 0);
+
     if( bayer == MAP_FAILED )
     {
         perror("Faild mmaping input");
         return 1;
     }
+
+
+	if (swap){
+		orig_bayer = bayer;
+		bayer = malloc(in_size);
+		if (bayer == NULL) {
+			perror("failed malloc for bayer copy");
+			return 1;
+		}
+	}
+
+
     rgb_start = rgb = mmap(NULL, out_size, PROT_READ | PROT_WRITE, MAP_SHARED /*| MAP_POPULATE*/, output_fd, 0);
     if( rgb == MAP_FAILED )
     {
@@ -282,29 +306,26 @@ main( int argc, char ** argv )
 			break;
 		case 16:
 		default:
-            if(swap){
-                uint8_t tmp=0;
-                uint32_t i=0;
-                for(i=0;i<in_size;i+=2){
-                    tmp = *(((uint8_t*)bayer)+i);
-                    *(((uint8_t*)bayer)+i) = *(((uint8_t*)bayer)+i+1);
-                    *(((uint8_t*)bayer)+i+1) = tmp;
-                }
-            }
+			if(swap){
+				uint32_t i=0;
+				for(i=0;i<(in_size/4);i++){
+					*(((uint32_t*)bayer)+i) = reverse(*(((uint32_t*)orig_bayer)+i));
+				}
+			}
 			dc1394_bayer_decoding_16bit((const uint16_t*)bayer, (uint16_t*)rgb_start, width, height, first_color, method, bpp);
 			break;
 	}
 #endif
 
 #if DEBUG
-	printf("Last few In: %x %x %x %x\n", 
+	printf("Last few In: %x %x %x %x\n",
 			((uint32_t*)bayer)[0],
 			((uint32_t*)bayer)[1],
 			((uint32_t*)bayer)[2],
 			((uint32_t*)bayer)[3]);
 
 //			((int*)rgb)[2] = 0xadadadad;
-	printf("Last few Out: %x %x %x %x\n", 
+	printf("Last few Out: %x %x %x %x\n",
 			((uint32_t*)rgb)[0],
 			((uint32_t*)rgb)[1],
 			((uint32_t*)rgb)[2],
