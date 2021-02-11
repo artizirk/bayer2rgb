@@ -193,6 +193,8 @@ main( int argc, char ** argv )
 
     while ((c=getopt_long(argc,argv,"i:o:w:v:b:f:m:ths",longopt,&optidx)) != -1)
     {
+           if (c ==255)
+                   break;
         switch ( c )
         {
             case 'i':
@@ -272,7 +274,7 @@ main( int argc, char ** argv )
 
 	if (swap){
 		orig_bayer = bayer;
-		bayer = malloc(in_size);
+		bayer = malloc(width * height * 16);
 		if (bayer == NULL) {
 			perror("failed malloc for bayer copy");
 			return 1;
@@ -307,9 +309,14 @@ main( int argc, char ** argv )
 		case 16:
 		default:
 			if(swap){
-				uint32_t i=0;
-				for(i=0;i<(in_size/4);i++){
-					*(((uint32_t*)bayer)+i) = reverse(*(((uint32_t*)orig_bayer)+i));
+				for (uint32_t i=0; i < (in_size/2); i+=1) {
+					*(((uint16_t*)bayer)+i) = (*(((uint16_t*)orig_bayer)+i)<<4);
+				}
+				uint16_t tmp=0;
+				for(uint32_t i=0;i<in_size/2;i+=2){
+					tmp = *(((uint16_t*)bayer)+i);
+					*(((uint16_t*)bayer)+i) = *(((uint16_t*)bayer)+i+1);
+					*(((uint16_t*)bayer)+i+1) = tmp;
 				}
 			}
 			dc1394_bayer_decoding_16bit((const uint16_t*)bayer, (uint16_t*)rgb_start, width, height, first_color, method, bpp);
